@@ -93,16 +93,32 @@ const SYNC_KEYS = [
 async function loadUserData(db, uid) {
   try {
     const doc = await db.collection("users").doc(uid).get();
+
     if (doc.exists) {
+      // ✅ Returning user — restore their cloud data into localStorage
       const data = doc.data();
       for (const key of SYNC_KEYS) {
         if (data[key] !== undefined) {
-          // Store as-is (Firestore already handles JSON via objects)
           const val = typeof data[key] === "object"
             ? JSON.stringify(data[key])
             : String(data[key]);
-          localStorage.setItem(key, val);
+          // Use native setItem to avoid triggering sync loop
+          Object.getPrototypeOf(localStorage).setItem.call(localStorage, key, val);
         }
+      }
+    } else {
+      // 🆕 First sign-in — upload whatever is already in localStorage to Firestore
+      const existingData = {};
+      for (const key of SYNC_KEYS) {
+        const val = localStorage.getItem(key);
+        if (val !== null) {
+          let parsed = val;
+          try { parsed = JSON.parse(val); } catch (_) {}
+          existingData[key] = parsed;
+        }
+      }
+      if (Object.keys(existingData).length > 0) {
+        await db.collection("users").doc(uid).set(existingData);
       }
     }
   } catch (err) {
